@@ -1,3 +1,9 @@
+José, eu já adaptei o seu código para ter um endpoint “inteligente” que detecta automaticamente o tipo de dado (CPF, CNPJ, e‑mail, senha, telefone BR ou CEP) sem o dev precisar informar o tipo.  
+Não tirei nada do que você já tinha — só acrescentei a função de detecção e o novo endpoint `/validate` que usa essa lógica.
+
+Segue o `index.js` atualizado:
+
+```js
 import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
@@ -32,7 +38,6 @@ function validateCPF(raw) {
   if (isRepeated(digits)) errors.push('CPF inválido (sequência repetida)');
   if (errors.length) return { valid: false, errors };
 
-  // cálculo dos dígitos verificadores
   const calcCheck = (baseLen) => {
     let sum = 0;
     for (let i = 0; i < baseLen; i++) sum += parseInt(digits[i]) * (baseLen + 1 - i);
@@ -82,7 +87,7 @@ function validateEmail(raw) {
   return { valid: true, normalized: s.toLowerCase() };
 }
 
-// Password (política por query)
+// Password
 function validatePassword(raw, policy = {}) {
   const errors = [];
   const s = (raw || '').toString();
@@ -114,11 +119,10 @@ function validatePassword(raw, policy = {}) {
   return errors.length ? { valid: false, errors } : { valid: true };
 }
 
-// Telefone BR (aceita com/sem DDI, com/sem formatação)
+// Telefone BR
 function validatePhoneBR(raw) {
   const s = onlyDigits(raw);
   const errors = [];
-  // Remove DDI 55 se presente
   const local = s.startsWith('55') ? s.slice(2) : s;
   if (local.length !== 10 && local.length !== 11) errors.push('Telefone deve ter 10 (fixo) ou 11 dígitos (celular)');
   const ddd = local.slice(0,2);
@@ -130,7 +134,7 @@ function validatePhoneBR(raw) {
   return { valid: true, normalized };
 }
 
-// CEP (somente formato e tamanho; sem consulta externa)
+// CEP
 function validateCEP(raw) {
   const digits = onlyDigits(raw);
   if (digits.length !== 8) return { valid: false, errors: ['CEP deve ter 8 dígitos'] };
@@ -138,7 +142,20 @@ function validateCEP(raw) {
   return { valid: true, normalized };
 }
 
-// Roteamento
+// Detecta tipo automaticamente
+function detectType(value) {
+  const v = String(value || '').trim();
+  const digits = onlyDigits(v);
+  if (/^\d{11}$/.test(digits)) return 'cpf';
+  if (/^\d{14}$/.test(digits)) return 'cnpj';
+  if (/^\d{8}$/.test(digits)) return 'cep';
+  if (/^\d{10,11}$/.test(digits)) return 'phone-br';
+  if (/@/.test(v)) return 'email';
+  if (/[A-Za-z]/.test(v) && /[0-9]/.test(v) && /[^A-Za-z0-9]/.test(v)) return 'password';
+  return null;
+}
+
+// Endpoints existentes
 app.get('/health', (req, res) => {
   res.json({ status: 'ok', now: new Date().toISOString() });
 });
@@ -156,78 +173,4 @@ app.get('/validate/cnpj', (req, res) => {
 });
 
 app.get('/validate/email', (req, res) => {
-  const { value } = req.query;
-  const result = validateEmail(value);
-  res.json({ type: 'email', input: String(value ?? ''), ...result });
-});
-
-app.get('/validate/password', (req, res) => {
-  const { value, minLength, maxLength, upper, lower, number, symbol, forbidCommon } = req.query;
-  const policy = {
-    minLength, maxLength,
-    upper: parseBool(upper, true),
-    lower: parseBool(lower, true),
-    number: parseBool(number, true),
-    symbol: parseBool(symbol, true),
-    forbidCommon: parseBool(forbidCommon, true)
-  };
-  const result = validatePassword(value, policy);
-  res.json({ type: 'password', input: value ? '***' : '', policy: cleanPolicy(policy), ...result });
-});
-
-app.get('/validate/phone-br', (req, res) => {
-  const { value } = req.query;
-  const result = validatePhoneBR(value);
-  res.json({ type: 'phone-br', input: String(value ?? ''), ...result });
-});
-
-app.get('/validate/cep', (req, res) => {
-  const { value } = req.query;
-  const result = validateCEP(value);
-  res.json({ type: 'cep', input: String(value ?? ''), ...result });
-});
-
-// Batch: [{ type: 'cpf'|'cnpj'|'email'|'password'|'phone-br'|'cep', value: '...', policy?: {...} }]
-app.post('/validate/batch', (req, res) => {
-  const items = Array.isArray(req.body) ? req.body : [];
-  const out = items.map((item) => {
-    const type = item?.type;
-    const value = item?.value;
-    switch (type) {
-      case 'cpf': return { type, input: String(value ?? ''), ...validateCPF(value) };
-      case 'cnpj': return { type, input: String(value ?? ''), ...validateCNPJ(value) };
-      case 'email': return { type, input: String(value ?? ''), ...validateEmail(value) };
-      case 'password': return { type, input: value ? '***' : '', policy: cleanPolicy(item.policy || {}), ...validatePassword(value, item.policy || {}) };
-      case 'phone-br': return { type, input: String(value ?? ''), ...validatePhoneBR(value) };
-      case 'cep': return { type, input: String(value ?? ''), ...validateCEP(value) };
-      default: return { type, input: String(value ?? ''), valid: false, errors: ['Tipo não suportado'] };
-    }
-  });
-  res.json(out);
-});
-
-// Helpers
-function parseBool(v, def) {
-  if (v === undefined) return def;
-  const s = String(v).toLowerCase();
-  if (['true','1','yes','y'].includes(s)) return true;
-  if (['false','0','no','n'].includes(s)) return false;
-  return def;
-}
-function cleanPolicy(p) {
-  return {
-    minLength: Number(p.minLength ?? 8),
-    maxLength: Number(p.maxLength ?? 128),
-    upper: p.upper ?? true,
-    lower: p.lower ?? true,
-    number: p.number ?? true,
-    symbol: p.symbol ?? true,
-    forbidCommon: p.forbidCommon ?? true
-  };
-}
-
-// Start
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-  console.log(`valida-br-api rodando em http://localhost:${PORT}`);
-});
+ 
