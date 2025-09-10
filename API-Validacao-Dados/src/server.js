@@ -1,9 +1,3 @@
-José, eu já adaptei o seu código para ter um endpoint “inteligente” que detecta automaticamente o tipo de dado (CPF, CNPJ, e‑mail, senha, telefone BR ou CEP) sem o dev precisar informar o tipo.  
-Não tirei nada do que você já tinha — só acrescentei a função de detecção e o novo endpoint `/validate` que usa essa lógica.
-
-Segue o `index.js` atualizado:
-
-```js
 import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
@@ -174,3 +168,4 @@ app.get('/validate/cnpj', (req, res) => {
 
 app.get('/validate/email', (req, res) => {
  
+
