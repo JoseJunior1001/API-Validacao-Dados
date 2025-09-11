@@ -14,7 +14,7 @@ app.use(morgan('tiny'));
 app.use(
   rateLimit({
     windowMs: 60 * 1000,
-    max: 120, // 120 req/min por IP
+    max: 120,
     standardHeaders: true,
     legacyHeaders: false
   })
@@ -99,7 +99,11 @@ function validatePassword(raw, policy = {}) {
   if (requireUpper && !/[A-Z]/.test(s)) errors.push('Ao menos 1 letra maiúscula');
   if (requireLower && !/[a-z]/.test(s)) errors.push('Ao menos 1 letra minúscula');
   if (requireNumber && !/[0-9]/.test(s)) errors.push('Ao menos 1 número');
-  if (requireSymbol && !/[!@#$%^&*(),.?":{}|<>_\-+=\[\]\\;/`'~]/.test(s)) errors.push('Ao menos 1 símbolo');
+  if (requireSymbol && !/[!@#$%^&*(),.?":{}|<>_\-+=
+
+\[\]
+
+\\;/`'~]/.test(s)) errors.push('Ao menos 1 símbolo');
 
   if (forbidCommon) {
     const common = new Set([
@@ -124,7 +128,7 @@ function validatePhoneBR(raw) {
   if (local.length === 11 && local[2] !== '9') errors.push('Celular deve iniciar com 9');
   if (errors.length) return { valid: false, errors };
 
-  const normalized = `+55 (${ddd}) ${local.length===11 ? `${local[2]}${local[3]}${local[4]}${local[5]}-${local.slice(6)}` : `${local[2]}${local[3]}${local[4]}${local[5]}-${local.slice(6)}`}`;
+  const normalized = `+55 (${ddd}) ${local.slice(2,7)}-${local.slice(7)}`;
   return { valid: true, normalized };
 }
 
@@ -136,16 +140,31 @@ function validateCEP(raw) {
   return { valid: true, normalized };
 }
 
-// Detecta tipo automaticamente
+// RG
+function validateRG(raw) {
+  const digits = onlyDigits(raw);
+  if (digits.length < 7 || digits.length > 9) return { valid: false, errors: ['RG deve ter entre 7 e 9 dígitos'] };
+  return { valid: true, normalized: digits };
+}
+
+// Nome
+function validateName(raw) {
+  const s = (raw || '').trim();
+  if (s.length < 2) return { valid: false, errors: ['Nome muito curto'] };
+  if (!/^[A-Za-zÀ-ÿ\s'-]+$/.test(s)) return { valid: false, errors: ['Nome contém caracteres inválidos'] };
+  return { valid: true, normalized: s.replace(/\s+/g, ' ') };
+}
+
+// Detecção inteligente
 function detectType(value) {
-  const v = String(value || '').trim();
-  const digits = onlyDigits(v);
-  if (/^\d{11}$/.test(digits)) return 'cpf';
-  if (/^\d{14}$/.test(digits)) return 'cnpj';
-  if (/^\d{8}$/.test(digits)) return 'cep';
-  if (/^\d{10,11}$/.test(digits)) return 'phone-br';
-  if (/@/.test(v)) return 'email';
-  if (/[A-Za-z]/.test(v) && /[0-9]/.test(v) && /[^A-Za-z0-9]/.test(v)) return 'password';
+  if (validatePhoneBR(value).valid) return 'phone-br';
+  if (validateCPF(value).valid) return 'cpf';
+  if (validateCNPJ(value).valid) return 'cnpj';
+  if (validateCEP(value).valid) return 'cep';
+  if (validateEmail(value).valid) return 'email';
+  if (validatePassword(value).valid) return 'password';
+  if (validateRG(value).valid) return 'rg';
+  if (validateName(value).valid) return 'name';
   return null;
 }
 
@@ -154,51 +173,21 @@ app.get('/health', (req, res) => {
   res.json({ status: 'ok', now: new Date().toISOString() });
 });
 
-app.get('/validate/cpf', (req, res) => {
+app.get('/detect', (req, res) => {
   const { value } = req.query;
-  const result = validateCPF(value);
-  res.json({ type: 'cpf', input: String(value ?? ''), ...result });
+  if (!value) return res.status(400).json({ error: 'Parâmetro "value" é obrigatório.' });
+    const tipo = detectType(value);
+  if (!tipo) return res.status(400).json({ error: 'Tipo de dado não reconhecido.' });
+
+  res.json({
+    type: tipo,
+    input: String(value ?? ''),
+    timestamp: new Date().toISOString(),
+    sourceIP: req.ip
+  });
 });
 
-app.get('/validate/cnpj', (req, res) => {
-  const { value } = req.query;
-  const result = validateCNPJ(value);
-  res.json({ type: 'cnpj', input: String(value ?? ''), ...result });
-});
-
-app.get('/validate/email', (req, res) => {
-  const { value } = req.query;
-  const result = validateEmail(value);
-  res.json({ type: 'email', input: String(value ?? ''), ...result });
-});
-
-app.get('/validate/password', (req, res) => {
-  const { value, minLength, maxLength, upper, lower, number, symbol, forbidCommon } = req.query;
-  const policy = {
-    minLength, maxLength,
-    upper: parseBool(upper, true),
-    lower: parseBool(lower, true),
-    number: parseBool(number, true),
-    symbol: parseBool(symbol, true),
-    forbidCommon: parseBool(forbidCommon, true)
-  };
-  const result = validatePassword(value, policy);
-  res.json({ type: 'password', input: value ? '***' : '', policy: cleanPolicy(policy), ...result });
-});
-
-app.get('/validate/phone-br', (req, res) => {
-  const { value } = req.query;
-  const result = validatePhoneBR(value);
-  res.json({ type: 'phone-br', input: String(value ?? ''), ...result });
-});
-
-app.get('/validate/cep', (req, res) => {
-  const { value } = req.query;
-  const result = validateCEP(value);
-  res.json({ type: 'cep', input: String(value ?? ''), ...result });
-});
-
-// Endpoint inteligente: detecta tipo automaticamente
+// Endpoint inteligente com validação
 app.get('/validate', (req, res) => {
   const { value } = req.query;
   if (!value) {
@@ -217,10 +206,18 @@ app.get('/validate', (req, res) => {
     case 'password': result = validatePassword(value, {}); break;
     case 'phone-br': result = validatePhoneBR(value); break;
     case 'cep': result = validateCEP(value); break;
+    case 'rg': result = validateRG(value); break;
+    case 'name': result = validateName(value); break;
     default: result = { valid: false, errors: ['Tipo não suportado'] };
   }
 
-  res.json({ type: tipo, input: tipo === 'password' ? '***' : String(value ?? ''), ...result });
+  res.json({
+    type: tipo,
+    input: tipo === 'password' ? '***' : String(value ?? ''),
+    ...result,
+    timestamp: new Date().toISOString(),
+    sourceIP: req.ip
+  });
 });
 
 // Batch
@@ -236,8 +233,23 @@ app.post('/validate/batch', (req, res) => {
       case 'password': return { type, input: value ? '***' : '', policy: cleanPolicy(item.policy || {}), ...validatePassword(value, item.policy || {}) };
       case 'phone-br': return { type, input: String(value ?? ''), ...validatePhoneBR(value) };
       case 'cep': return { type, input: String(value ?? ''), ...validateCEP(value) };
+      case 'rg': return { type, input: String(value ?? ''), ...validateRG(value) };
+      case 'name': return { type, input: String(value ?? ''), ...validateName(value) };
       default: return { type, input: String(value ?? ''), valid: false, errors: ['Tipo não suportado'] };
     }
+  });
+  res.json(out);
+});
+
+// Teste de detecção
+app.post('/test', (req, res) => {
+  const values = Array.isArray(req.body) ? req.body : [];
+  const out = values.map((value) => {
+    const type = detectType(value);
+    return {
+      input: String(value ?? ''),
+      detectedType: type ?? 'não reconhecido'
+    };
   });
   res.json(out);
 });
