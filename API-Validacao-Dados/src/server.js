@@ -94,28 +94,21 @@ function validatePassword(raw, policy = {}) {
   const requireSymbol = policy.symbol ?? true;
   const forbidCommon = policy.forbidCommon ?? true;
 
-  if (s.length < minLength) errors.push(`Senha deve ter no mínimo ${minLength} caracteres`);
-  if (s.length > maxLength) errors.push(`Senha deve ter no máximo ${maxLength} caracteres`);
-  if (requireUpper && !/[A-Z]/.test(s)) errors.push('Ao menos 1 letra maiúscula');
-  if (requireLower && !/[a-z]/.test(s)) errors.push('Ao menos 1 letra minúscula');
-  if (requireNumber && !/[0-9]/.test(s)) errors.push('Ao menos 1 número');
-  if (requireSymbol && !/[!@#$%^&*(),.?":{}|<>_\-+=
-
-\[\]
-
-\\;/`'~]/.test(s)) errors.push('Ao menos 1 símbolo');
-
-  if (forbidCommon) {
-    const common = new Set([
-      '123456','password','123456789','qwerty','abc123','111111','123123','senha','admin','iloveyou'
-    ]);
-    if (common.has(s.toLowerCase())) errors.push('Senha muito comum');
-  }
-
-  if (/^\s|\s$/.test(s)) errors.push('Não iniciar ou terminar com espaço');
-
-  return errors.length ? { valid: false, errors } : { valid: true };
+if (s.length < minLength) errors.push(`Senha deve ter no mínimo ${minLength} caracteres`);
+if (s.length > maxLength) errors.push(`Senha deve ter no máximo ${maxLength} caracteres`);
+if (requireUpper && !/[A-Z]/.test(s)) errors.push('Ao menos 1 letra maiúscula');
+if (requireLower && !/[a-z]/.test(s)) errors.push('Ao menos 1 letra minúscula');
+if (requireNumber && !/[0-9]/.test(s)) errors.push('Ao menos 1 número');
+if (requireSymbol && !/[!@#$%^&*(),.?":{}|<>_\-+=\[\]\\/;:,.<>`~'"]/i.test(s)) errors.push('Ao menos 1 símbolo');
+if (forbidCommon) {
+  const common = new Set([
+    '123456', 'password', '123456789', 'qwerty', 'abc123', '111111', '123123', 'senha', 'admin', 'iloveyou'
+  ]);
+  if (common.has(s.toLowerCase())) errors.push('Senha muito comum');
 }
+if (/^\s|\s$/.test(s)) errors.push('Não iniciar ou terminar com espaço');
+
+
 
 // Telefone BR
 function validatePhoneBR(raw) {
